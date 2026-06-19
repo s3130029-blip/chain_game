@@ -717,7 +717,7 @@ export function decodeBoard(code: string): Board   // 不正入力は throw（�
 
 ---
 
-### T20: 盤面エディタ（BoardView + Editor）
+### T20: 盤面エディタ（BoardView + Editor）✅
 
 **ファイル**: `src/ui/BoardView.ts`, `src/ui/Editor.ts`, `src/ui/App.ts`, `index.html`（描画領域追加）, `src/main.ts`（UIブートストラップへ差し替え）
 
@@ -729,7 +729,7 @@ export function decodeBoard(code: string): Board   // 不正入力は throw（�
 
 ---
 
-### T21: リプレイビューア（ReplayPlayer）
+### T21: リプレイビューア（ReplayPlayer）✅
 
 **ファイル**: `src/ui/ReplayPlayer.ts`, `src/ui/App.ts`（遷移追加）
 
@@ -741,7 +741,7 @@ export function decodeBoard(code: string): Board   // 不正入力は throw（�
 
 ---
 
-### T22: 対戦セットアップ + 共有コード/URL 連携
+### T22: 対戦セットアップ + 共有コード/URL 連携 ✅
 
 **ファイル**: `src/ui/ShareCode.ts`, `src/engine/`（または `src/ui/`）に `setupBattle(myBoard, oppBoard): Board` 相当, `src/ui/App.ts`
 
@@ -753,7 +753,7 @@ export function decodeBoard(code: string): Board   // 不正入力は throw（�
 
 ---
 
-### T23: 道場UI + 最小チュートリアル
+### T23: 道場UI + 最小チュートリアル ✅
 
 **ファイル**: `src/ui/App.ts`（道場選択UI）, 必要なら `src/ui/Tutorial.ts`
 
@@ -771,11 +771,20 @@ export function decodeBoard(code: string): Board   // 不正入力は throw（�
 
 ---
 
-### T24: バランス調整
+### T24: バランス調整 ✅
 
 **目的**: 決定論ゆえの全数テストに近い検証で、支配的コンボ（壊れ）を是正。ユニットの speed/HP/cost を調整（CLAUDE.md §8「T7.2 まで据え置き」の凍結を解除するのはここ）。
 
 **前提**: フェーズ2 完了。**完了条件**: 道場相手・代表構築での偏りが許容範囲。回帰テスト緑。
+
+**実装**:
+- `src/balance/`（出荷ランタイム外の解析ツール。architecture.md フェーズ3 章参照）:
+  - `builds.ts`: 代表構築（攻撃/伝播/爆発/制御/防御/安価スパムの archetype）。
+  - `harness.ts`: 投入可能（コスト上限12以内）構築の決定論総当たり → 勝率/引分/連鎖/コストを集計、最安支配（壊れ）検出、上限超過の除外。`ui/setupBattle` を再利用。
+  - `run.ts`: `npm run balance` でレポート出力。
+- 調整（`src/data/unitTemplates.ts`）: `pusher` cost 2→3、`reactor` cost 1→2。MVP の撃破は盤外押し出しのみで HP/不動 speed は勝敗にほぼ無影響のため cost に集約（§216-218「便利な接続をコスト化」）。
+- 検証結果: 最安支配コンボ（旧 relay cost3=93%）を解消。コスト上限が発効し過剰スタック（reactor_swarm/combo_aggro）は投入不可に。引き分け量産なし（7%）。
+- 回帰ガード: `tests/balance/balance.test.ts`（T24-01〜08）。
 
 ---
 

@@ -9,6 +9,7 @@
   "scripts": {
     "dev": "vite",
     "sim": "tsx src/main.ts",
+    "balance": "tsx src/balance/run.ts",
     "build": "vite build",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
