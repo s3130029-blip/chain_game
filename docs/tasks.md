@@ -675,7 +675,7 @@ export const DOJO_OPPONENTS: DojoOpponent[] = [
 
 ---
 
-### T19: 共有コード codec（encode / decode）
+### T19: 共有コード codec（encode / decode） ✅
 
 **ファイル**: `src/share/format.ts`, `src/share/encode.ts`, `src/share/decode.ts`
 
