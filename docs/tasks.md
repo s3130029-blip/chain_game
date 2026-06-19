@@ -788,13 +788,22 @@ export function decodeBoard(code: string): Board   // 不正入力は throw（�
 
 ---
 
-### T25: 結果シェア（Wordle方式）+ 演出ジュース
+### T25: 結果シェア（Wordle方式）+ 演出ジュース ✅
 
 **ファイル**: `src/ui/ResultShare.ts`, リプレイ演出の強化。
 
 **目的**: 勝敗・最大連鎖数・決め手を短文＋絵文字グリッドに整形（ネタバレ抑制）。連鎖時の音・シェイク・コンボ表示。
 
 **前提**: T21, T24。**完了条件**: 結果テキストがコピーでき、SNSに貼れる長さ。
+
+**実装**:
+- `src/ui/ResultShare.ts`（依存は types のみ＝architecture フェーズ2 DAG 準拠）:
+  - 純粋関数 `formatResultShare(result)`: 4行のシェアテキスト（タイトル／勝敗＋🔗最大連鎖／ラウンド連鎖の絵文字グリッド／決め手）を生成。盤面・座標・ユニット名・コードは一切出さない（ネタバレ抑制）。グリッドはラウンドごとの連鎖深度（手番あたり trigger_fire 数の最大）を Wordle 風の濃淡 `⬜🟦🟩🟨🟧` で表し、最大値は engine の `maxChainDepth` と一致する。決め手はコア撃破なら決着直前の効果（無ければ「直接押し出し」）、タイブレーク決着は勝因ラベル。Map 列挙順に依存せずラウンドキーを明示ソート（決定論）。
+  - DOM コンポーネント `ResultShare`: 整形済みテキストを表示し `📋 結果をコピー`（クリップボードはベストエフォート）。`invite` で盤面を含まないゲーム URL を文末に付与。
+- リプレイ演出（`src/ui/ReplayPlayer.ts`）: 連鎖発火・撃破時の WebAudio 音、盤面シェイク、`🔥 N 連鎖!` のコンボ表示（各フレームに前計算した `combo` でシーク安全）。`🔊/🔇` ミュート切替。前進フレーム時のみ演出（戻る/最後へは無音）。`onReachEnd` コールバックを追加（ResultShare を import せず DAG 維持）。
+- `src/ui/App.ts`: リプレイ画面に ResultShare パネルを生成し、`onReachEnd` で初めて表示（最後まで観るまで隠す＝ネタバレ抑制）。
+- `index.html`: シェイク／コンボのCSS（`prefers-reduced-motion` で無効化）。
+- 検証: `tests/ui/resultShare.test.ts`（勝敗ラベル・最大連鎖・グリッド・決め手・ネタバレ抑制・SNS 長さ ≤280・決定論・実エンジン統合の11ケース）。`npm test` 全緑・`npm run typecheck`/`npm run build` 成功。
 
 ---
 

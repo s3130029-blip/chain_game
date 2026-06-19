@@ -536,7 +536,7 @@ interface BoardCodec {
 | `ReplayPlayer` | `BattleResult.events` を step 順に再生（再生/一時停止/早送り/スキップ）。`BoardView` を更新 | T21 |
 | `ShareCode` | コードのコピー／貼り付け読込、`?b=<code>` の URL 生成と起動時パース | T22 |
 | `App` | 画面遷移（エディタ ⇄ リプレイ）、道場相手の選択、対戦実行（`setupBattle` → `BattleEngine.run` → `ReplayPlayer`） | T20〜 |
-| `ResultShare` | 勝敗・最大連鎖数・決め手を Wordle 風の短文＋絵文字に整形 | T24 |
+| `ResultShare` | 勝敗・最大連鎖数・決め手を Wordle 風の短文＋絵文字に整形 | T25 |
 
 ### 画面遷移（最小）
 

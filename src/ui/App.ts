@@ -1,5 +1,6 @@
 import { Editor } from './Editor'
 import { ReplayPlayer } from './ReplayPlayer'
+import { ResultShare } from './ResultShare'
 import { ShareCode, parseBoardCodeFromQuery } from './ShareCode'
 import { setupBattle } from './setupBattle'
 import { Tutorial, buildTutorialBoard, hasSeenTutorial, markTutorialSeen } from './Tutorial'
@@ -196,7 +197,17 @@ export class App {
     header.className = 'app__header'
     header.textContent = `リプレイ — ${title}`
 
-    this.replay = new ReplayPlayer(initial, result, { playerRows: PLAYER_ROWS })
+    // 結果シェア（T25）。ネタバレ抑制のため、リプレイを最後まで観るまで隠しておく。
+    // invite は盤面を含まないゲーム URL（origin + pathname）にし、相手構築のネタバレを避ける。
+    const share = new ResultShare(result, { invite: gameInviteUrl() })
+    share.el.style.display = 'none'
+
+    this.replay = new ReplayPlayer(initial, result, {
+      playerRows: PLAYER_ROWS,
+      onReachEnd: () => {
+        share.el.style.display = ''
+      },
+    })
 
     const back = document.createElement('button')
     back.type = 'button'
@@ -204,7 +215,7 @@ export class App {
     back.textContent = '← 編集に戻る'
     back.addEventListener('click', () => this.showEditor())
 
-    this.root.append(header, this.replay.el, back)
+    this.root.append(header, this.replay.el, share.el, back)
   }
 
   private disposeReplay(): void {
@@ -213,6 +224,11 @@ export class App {
       this.replay = null
     }
   }
+}
+
+// 結果シェアに載せる「ゲームを遊ぶ」URL（盤面コードを含めない＝ネタバレ抑制）。
+function gameInviteUrl(): string {
+  return `🎮 挑戦 → ${window.location.origin}${window.location.pathname}`
 }
 
 /**

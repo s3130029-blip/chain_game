@@ -67,11 +67,16 @@ interface Frame {
   label: string
   kind: EventKind | 'init'
   round: number
+  // そのフレーム時点の連鎖カウント（同一手番で連続発火した trigger_fire 数。非発火フレームは 0）。
+  // コンボ表示用。シーク（戻る/最後へ）しても各フレームから一意に決まるよう前計算しておく。
+  combo: number
 }
 
 export interface ReplayPlayerOptions {
   // 下から数えてプレイヤー陣地とみなす行数（BoardView の色分け用）。
   playerRows?: number
+  // 最後のフレームに到達した時に1回だけ呼ばれる（結果シェアの表示など。ネタバレ抑制のため終端で初出）。
+  onReachEnd?: () => void
 }
 
 export class ReplayPlayer {
@@ -84,15 +89,24 @@ export class ReplayPlayer {
   private playing = false
   private speedIndex = 0
   private timer: number | null = null
+  private reachedEnd = false
+
+  // 演出ジュース（タスク T25）。すべて UI 層のみ（決定論には一切影響しない）。
+  private muted = false
+  private audio: AudioContext | null = null
+  private readonly onReachEnd: (() => void) | undefined
 
   private readonly statusEl: HTMLDivElement
   private readonly progressEl: HTMLDivElement
+  private readonly comboEl: HTMLDivElement
   private readonly resultEl: HTMLDivElement
   private readonly playBtn: HTMLButtonElement
   private readonly speedBtn: HTMLButtonElement
+  private readonly muteBtn: HTMLButtonElement
 
   constructor(initialBoard: Board, result: BattleResult, options: ReplayPlayerOptions = {}) {
     this.result = result
+    this.onReachEnd = options.onReachEnd
     this.frames = buildFrames(initialBoard, result)
     this.view = new BoardView(initialBoard.width, initialBoard.height, {
       playerRows: options.playerRows ?? Math.floor(initialBoard.height / 2),
@@ -104,6 +118,9 @@ export class ReplayPlayer {
     this.progressEl = document.createElement('div')
     this.progressEl.className = 'hint'
 
+    this.comboEl = document.createElement('div')
+    this.comboEl.className = 'replay__combo'
+
     this.resultEl = document.createElement('div')
     this.resultEl.className = 'replay__result'
     this.resultEl.style.fontWeight = '700'
@@ -111,6 +128,7 @@ export class ReplayPlayer {
 
     this.playBtn = makeButton('▶ 再生', () => this.togglePlay())
     this.speedBtn = makeButton(`⏩ ${this.currentSpeed().label}`, () => this.cycleSpeed())
+    this.muteBtn = makeButton('🔊 音あり', () => this.toggleMute())
 
     const controls = document.createElement('div')
     controls.style.display = 'flex'
@@ -123,6 +141,7 @@ export class ReplayPlayer {
       makeButton('進む ▶', () => this.stepForward()),
       makeButton('⏭ 最後', () => this.skipToEnd()),
       this.speedBtn,
+      this.muteBtn,
     )
 
     const status = document.createElement('div')
@@ -137,15 +156,19 @@ export class ReplayPlayer {
     el.style.display = 'flex'
     el.style.flexDirection = 'column'
     el.style.gap = '12px'
-    el.append(this.view.el, status, this.resultEl, controls)
+    el.append(this.view.el, this.comboEl, status, this.resultEl, controls)
 
     this.el = el
     this.renderCurrent()
   }
 
-  // 画面遷移などで破棄する際に必ず呼ぶ（走行中タイマーを止める）。
+  // 画面遷移などで破棄する際に必ず呼ぶ（走行中タイマーを止め、AudioContext を閉じる）。
   dispose(): void {
     this.clearTimer()
+    if (this.audio !== null) {
+      void this.audio.close().catch(() => undefined)
+      this.audio = null
+    }
   }
 
   private currentSpeed(): Speed {
@@ -165,6 +188,7 @@ export class ReplayPlayer {
     // 末尾で再生を押したら先頭から再生し直す（観直しやすさ）。
     if (this.index >= this.lastIndex()) this.index = 0
     this.playing = true
+    this.ensureAudio() // 再生ボタンはユーザー操作なので、ここで AudioContext を起こす（自動再生規制対策）。
     this.renderCurrent()
     this.scheduleNext()
   }
@@ -181,7 +205,7 @@ export class ReplayPlayer {
       this.timer = null
       if (this.index < this.lastIndex()) {
         this.index++
-        this.renderCurrent()
+        this.renderCurrent(true) // 前進フレームなので演出（音・シェイク・コンボ）を出す。
       }
       if (this.index < this.lastIndex()) this.scheduleNext()
       else this.pause()
@@ -190,9 +214,10 @@ export class ReplayPlayer {
 
   private stepForward(): void {
     this.pause()
+    this.ensureAudio()
     if (this.index < this.lastIndex()) {
       this.index++
-      this.renderCurrent()
+      this.renderCurrent(true)
     }
   }
 
@@ -230,7 +255,9 @@ export class ReplayPlayer {
     }
   }
 
-  private renderCurrent(): void {
+  // juice=true（前進フレーム）のときだけ音・シェイク・コンボのポップ演出を出す。
+  // 戻る/最後へ/初期描画では演出を出さない（連発・耳障りを避ける）。
+  private renderCurrent(juice = false): void {
     const frame = this.frames[this.index]
     if (frame === undefined) return
 
@@ -239,10 +266,99 @@ export class ReplayPlayer {
     this.statusEl.textContent = `[${roundTag}] ${frame.label}`
     this.progressEl.textContent = `${this.index} / ${this.lastIndex()}`
 
+    // コンボ（連鎖）表示: 2 連鎖以上で点灯。各フレームの combo から一意に決まる（シーク安全）。
+    this.comboEl.textContent = frame.combo >= 2 ? `🔥 ${frame.combo} 連鎖!` : ''
+
+    if (juice) this.emitJuice(frame)
+
     // 結果は最後まで再生して初めて見せる（ネタバレ防止）。
-    this.resultEl.textContent = this.index === this.lastIndex() ? resultText(this.result) : ''
+    const atEnd = this.index === this.lastIndex()
+    this.resultEl.textContent = atEnd ? resultText(this.result) : ''
+    if (atEnd && !this.reachedEnd) {
+      this.reachedEnd = true
+      this.onReachEnd?.()
+    }
 
     this.updatePlayBtn()
+  }
+
+  // フレーム種別に応じた手応え演出。撃破は強く（低音＋盤面シェイク）、連鎖発火は連鎖数に応じた高音＋ポップ。
+  private emitJuice(frame: Frame): void {
+    switch (frame.kind) {
+      case 'unit_destroy':
+        this.shake()
+        this.beep(150, 180)
+        break
+      case 'trigger_fire':
+        this.beep(320 + frame.combo * 70, 110)
+        if (frame.combo >= 2) {
+          this.popCombo()
+          this.shake()
+        }
+        break
+      default:
+        break
+    }
+  }
+
+  private toggleMute(): void {
+    this.muted = !this.muted
+    this.muteBtn.textContent = this.muted ? '🔇 ミュート' : '🔊 音あり'
+  }
+
+  // 盤面を一瞬だけ揺らす（CSS アニメを remove→reflow→add で都度リスタート）。
+  private shake(): void {
+    const el = this.view.el
+    el.classList.remove('board--shake')
+    void el.offsetWidth // reflow を強制してアニメを必ず再生させる。
+    el.classList.add('board--shake')
+  }
+
+  private popCombo(): void {
+    const el = this.comboEl
+    el.classList.remove('replay__combo--pop')
+    void el.offsetWidth
+    el.classList.add('replay__combo--pop')
+  }
+
+  // 再生ボタン等のユーザー操作時に AudioContext を遅延生成・再開する（自動再生規制対策）。
+  private ensureAudio(): void {
+    if (this.muted) return
+    if (this.audio === null) {
+      const w = window as Window & { webkitAudioContext?: typeof AudioContext }
+      const Ctor = window.AudioContext ?? w.webkitAudioContext
+      if (Ctor === undefined) return
+      try {
+        this.audio = new Ctor()
+      } catch {
+        this.audio = null
+      }
+    }
+    if (this.audio !== null && this.audio.state === 'suspended') {
+      void this.audio.resume().catch(() => undefined)
+    }
+  }
+
+  // 短い減衰音を鳴らす（ベストエフォート。AudioContext が無い/失敗する環境では黙って何もしない）。
+  private beep(freq: number, durMs: number): void {
+    if (this.muted) return
+    const ctx = this.audio
+    if (ctx === null) return
+    try {
+      const osc = ctx.createOscillator()
+      const gain = ctx.createGain()
+      osc.type = 'triangle'
+      osc.frequency.value = freq
+      const t = ctx.currentTime
+      const dur = durMs / 1000
+      gain.gain.setValueAtTime(0.06, t)
+      gain.gain.exponentialRampToValueAtTime(0.0001, t + dur)
+      osc.connect(gain).connect(ctx.destination)
+      osc.start(t)
+      osc.stop(t + dur)
+    } catch {
+      // 演出はベストエフォート。失敗しても再生体験を壊さない。
+    }
   }
 
   private updatePlayBtn(): void {
@@ -283,14 +399,23 @@ function buildFrames(initial: Board, result: BattleResult): Frame[] {
   }
 
   const frames: Frame[] = [
-    { board: snapshot(width, height, live), label: '開始 — 初期配置', kind: 'init', round: 0 },
+    { board: snapshot(width, height, live), label: '開始 — 初期配置', kind: 'init', round: 0, combo: 0 },
   ]
 
   let round = 0
+  // combo は手番（turn_start）開始でリセットし、trigger_fire ごとに増やす連鎖カウント。
+  let combo = 0
   for (const ev of result.events) {
     if (ev.kind === 'turn_start') {
       const r = ev.metadata?.['round']
       if (typeof r === 'number') round = r
+      combo = 0
+    }
+
+    let frameCombo = 0
+    if (ev.kind === 'trigger_fire') {
+      combo++
+      frameCombo = combo
     }
 
     // ラベルは適用前に作る（unit_destroy で消える前のユニット名を引くため）。
@@ -300,7 +425,7 @@ function buildFrames(initial: Board, result: BattleResult): Frame[] {
     // 過渡的な重なり（swap の片側だけ適用した瞬間）はフレーム化しない。
     if (hasCollision(live)) continue
 
-    frames.push({ board: snapshot(width, height, live), label, kind: ev.kind, round })
+    frames.push({ board: snapshot(width, height, live), label, kind: ev.kind, round, combo: frameCombo })
   }
 
   return frames
