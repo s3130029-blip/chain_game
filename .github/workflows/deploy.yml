@@ -1,0 +1,50 @@
+name: Deploy to GitHub Pages
+
+# T26: vite build → dist/ を GitHub Pages へ公開する。
+# 公開URLで誰でもログイン不要・インストール不要で遊べる（?b= 共有も動作）。
+#
+# 有効化（リポジトリ初回のみ・手動）:
+#   GitHub → Settings → Pages → Build and deployment → Source: "GitHub Actions"
+#   を選ぶと、main への push でこのワークフローが走り公開される。
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch: # 手動実行も可能にする
+
+# GITHUB_TOKEN に Pages デプロイ権限を与える（必要最小限）。
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# 同時デプロイを抑止（進行中があれば後発を優先せず待つ）。公開の取りこぼしを防ぐ。
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci
+      - run: npm run build # vite build → dist/
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: dist
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4

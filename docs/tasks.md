@@ -813,6 +813,16 @@ export function decodeBoard(code: string): Board   // 不正入力は throw（�
 
 **前提**: 全フェーズ2タスク。**完了条件**: 公開URLで誰でもログイン不要・インストール不要で遊べる。`?b=` 共有が動作。
 
+**実装**:
+- `.github/workflows/deploy.yml`: `main` への push（＋手動 `workflow_dispatch`）で `npm ci` → `npm run build` → `dist/` を GitHub Pages へ公開する公式 Actions パイプライン（`configure-pages` / `upload-pages-artifact` / `deploy-pages`）。`permissions: pages:write, id-token:write` と `concurrency: pages` を付与。`vite.config.ts` は T01 以来 `base: './'`（相対パス）なので `chain_game` サブパス配信でもアセット解決が壊れない（`dist/index.html` は `./assets/...` を参照）。
+- `README.md`: 公開URL（https://s3130029-blip.github.io/chain_game/ ）・遊び方（構築→対戦→観戦→共有のループ）・ユニット6種表・**作例コード3件**（実コーデックで生成し decode 往復を検証）・開発/デプロイ手順。作例の `?b=` リンクは percent-encode 済み（lz-string 出力に含まれる `+` は `URLSearchParams` で空白化するため `%2B` 等へ。生コードは貼り付け欄向けにそのまま併記＝`extractCode` は `?` 無しなら verbatim 返却）。
+- 検証: `npm run build`（緑・`dist/` 生成）/ `npm run typecheck`（エラーなし）/ `npm test`（130 緑）。作例 `?b=` URL は `URLSearchParams` 往復一致を確認。
+
+**公開（go-live）に残る手動2ステップ**（リポジトリ初回のみ）:
+1. GitHub → Settings → Pages → Build and deployment → **Source を「GitHub Actions」** に変更。
+2. `main` へ push（このタスクのコミットを push するとワークフローが走り公開）。
+→ 上記完了後に実際の公開URL・`?b=` 共有を確認してから本タスクを ✅ とする。
+
 ---
 
 ## タスク依存関係まとめ
