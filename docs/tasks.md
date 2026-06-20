@@ -807,7 +807,7 @@ export function decodeBoard(code: string): Board   // 不正入力は throw（�
 
 ---
 
-### T26: GitHub Pages デプロイ
+### T26: GitHub Pages デプロイ ✅
 
 **目的**: `vite build` → `dist/` を GitHub Pages へ。遊び方ページ、作例コードと共に公開。
 
